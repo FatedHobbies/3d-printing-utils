@@ -15,6 +15,21 @@ class SlicerError(RuntimeError):
     pass
 
 
+def explain_connect_error(base_url: str, exc: Exception) -> str:
+    """Turn low-level connection errors into something a person can act on."""
+    host = httpx.URL(base_url).host or base_url
+    text = str(exc)
+    if "getaddrinfo" in text or "Name or service not known" in text or "nodename nor servname" in text:
+        return (f"Can't find a computer named '{host}' on the network. Use the Slicer PC's "
+                f"actual name or IP address in Settings (on the Slicer PC itself, 127.0.0.1).")
+    if isinstance(exc, httpx.ConnectError):
+        return (f"Nothing answered at {base_url}. Check the Slicer service is running, the port "
+                f"matches, and the firewall allows it. ({text})")
+    if isinstance(exc, httpx.TimeoutException):
+        return f"Slicer at {base_url} didn't respond in time. ({text or type(exc).__name__})"
+    return f"Could not reach Slicer at {base_url}: {text or type(exc).__name__}"
+
+
 class SlicerClient:
     def __init__(self, base_url: str, token: str, timeout: float = 15.0):
         self.base_url = base_url.rstrip("/")
@@ -45,10 +60,12 @@ class SlicerClient:
         return resp
 
     def _request(self, method: str, url: str, **kwargs) -> httpx.Response:
+        if not self.base_url:
+            raise SlicerError("The Slicer address isn't set. Open Settings and enter it.")
         try:
             return self._check(self._client.request(method, url, **kwargs))
         except httpx.HTTPError as exc:
-            raise SlicerError(f"Could not reach Slicer at {self.base_url}: {exc}") from exc
+            raise SlicerError(explain_connect_error(self.base_url, exc)) from exc
 
     def health(self) -> dict:
         return self._request("GET", "/health").json()
@@ -78,7 +95,7 @@ class SlicerClient:
                         out.write(chunk)
         except httpx.HTTPError as exc:
             tmp.unlink(missing_ok=True)
-            raise SlicerError(f"Download failed: {exc}") from exc
+            raise SlicerError(f"Download failed: {explain_connect_error(self.base_url, exc)}") from exc
         tmp.replace(dest)
         return dest
 

@@ -184,8 +184,8 @@ class SettingsDialog(QDialog):
         self.cfg = cfg
 
         self.url = QLineEdit(cfg.slicer_url)
+        self.url.setPlaceholderText("http://<Slicer PC name or IP>:8765")
         self.token = QLineEdit(cfg.token)
-        self.token.setEchoMode(QLineEdit.PasswordEchoOnEdit)
         self.bambu_path = QLineEdit(cfg.bambu_studio_path)
         self.bambu_path.setPlaceholderText("Auto-detect")
         browse = QPushButton("Browse…")
@@ -204,6 +204,8 @@ class SettingsDialog(QDialog):
         self.auto_open.setChecked(cfg.open_result_automatically)
 
         self.test_result = QLabel()
+        self.test_result.setWordWrap(True)
+        self.test_result.setTextInteractionFlags(Qt.TextSelectableByMouse)
         test = QPushButton("Test connection")
         test.clicked.connect(self._test)
 
@@ -301,7 +303,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._check_health)
         QTimer.singleShot(0, self._resume_interrupted)
 
-        if not self.cfg.token:
+        if not self.cfg.token or not self.cfg.slicer_url:
             QTimer.singleShot(200, self._first_run)
 
     # ----- UI ----------------------------------------------------------
@@ -445,7 +447,9 @@ class MainWindow(QMainWindow):
     def _first_run(self) -> None:
         QMessageBox.information(
             self, "Welcome",
-            "Enter the Slicer's address and access token to get started.\n\n"
+            "Enter the Slicer's address (for example http://SLICER-PC-NAME:8765, or "
+            "http://127.0.0.1:8765 when testing on the Slicer PC itself) and access token "
+            "to get started.\n\n"
             "On the Slicer PC, run:  python -m threedpu.slicer show-token",
         )
         self._settings()
@@ -590,7 +594,7 @@ class MainWindow(QMainWindow):
             self.conn_label.setText(text)
 
         def failed(err):
-            self.conn_label.setText("Slicer: not reachable")
+            self.conn_label.setText("Slicer: not reachable (hover for details)")
             self.conn_label.setToolTip(err.splitlines()[0])
 
         def run():

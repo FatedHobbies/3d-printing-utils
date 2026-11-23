@@ -56,6 +56,7 @@ def test_find_bambu_missing(tmp_path, monkeypatch):
     for var in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)", "LOCALAPPDATA", bambu.ENV_VAR):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.setattr(bambu, "_registry_dirs", lambda: [])  # a real install may be registered
     with pytest.raises(bambu.BambuStudioNotFound):
         bambu.find_bambu_studio()
     with pytest.raises(bambu.BambuStudioNotFound):

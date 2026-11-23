@@ -89,7 +89,7 @@ py -3 -m venv "$env:USERPROFILE\3dpu\venv"
 & "$env:USERPROFILE\3dpu\venv\Scripts\python.exe" -m threedpu.manager
 ```
 
-On first start, the app asks for the Slicer address (for example `http://slicer-pc:8765`) and the
+On first start, the app asks for the Slicer address, made from the Slicer PC's computer name or IP (for example `http://RYAN-PC:8765`, or `http://127.0.0.1:8765` when both run on one PC), and the
 access token. **Test connection** confirms both. You can also edit the printer list there. It
 comes pre-filled with `P1S #1` to `#5` and `H2D #1`, `#2`.
 

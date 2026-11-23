@@ -65,7 +65,7 @@ class SlicerConfig:
 
 @dataclass
 class ManagerConfig:
-    slicer_url: str = f"http://slicer-pc:{DEFAULT_PORT}"
+    slicer_url: str = ""  # e.g. http://<slicer PC name or IP>:8765, set in Settings
     token: str = ""
     bambu_studio_path: str = ""
     jobs_dir: str = field(default_factory=_default_jobs_dir)

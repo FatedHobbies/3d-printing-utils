@@ -79,6 +79,11 @@ def test_client_errors(server):
         c.health()
     with SlicerClient("http://127.0.0.1:1", TOKEN, timeout=1) as c, pytest.raises(SlicerError):
         c.health()
+    with SlicerClient("http://no-such-host.invalid:8765", TOKEN, timeout=2) as c, \
+            pytest.raises(SlicerError, match="Can't find a computer named 'no-such-host.invalid'"):
+        c.health()
+    with SlicerClient("", TOKEN) as c, pytest.raises(SlicerError, match="isn't set"):
+        c.health()
 
 
 def test_app_end_to_end(server, tmp_path, project, monkeypatch):
