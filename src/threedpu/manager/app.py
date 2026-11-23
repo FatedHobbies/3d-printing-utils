@@ -459,6 +459,14 @@ class MainWindow(QMainWindow):
         html += "<p style='color:gray'>Click a file path to show it in Explorer.</p>"
         return html
 
+    def closeEvent(self, event) -> None:  # noqa: N802
+        # Let background requests finish before Qt tears down, so none of them
+        # reports back into a deleted window (which can crash on exit).
+        self.poll_timer.stop()
+        self.health_timer.stop()
+        self.pool.waitForDone(10000)
+        super().closeEvent(event)
+
     def dragEnterEvent(self, event) -> None:  # noqa: N802
         urls = event.mimeData().urls()
         if urls and urls[0].toLocalFile().lower().endswith(".3mf"):
@@ -724,4 +732,9 @@ def main(argv: list[str] | None = None) -> int:
             break
     window = MainWindow()
     window.show()
-    return app.exec()
+    code = app.exec()
+    # Destroy the window while the QApplication still exists (avoids a crash on exit).
+    window.deleteLater()
+    app.processEvents()
+    del window
+    return code

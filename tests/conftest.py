@@ -76,3 +76,26 @@ def fake_bambu(tmp_path: Path) -> Path:
 @pytest.fixture
 def project(tmp_path: Path) -> Path:
     return make_project(tmp_path / "cube.3mf", plates=2)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _qt_teardown():
+    """Destroy Qt widgets before the interpreter exits.
+
+    Otherwise Python may free the QApplication before the windows the tests made,
+    which segfaults during interpreter shutdown (after all tests have passed).
+    """
+    yield
+    if "PySide6.QtWidgets" not in sys.modules:
+        return
+    from PySide6.QtCore import QThreadPool
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    QThreadPool.globalInstance().waitForDone(10000)
+    if app is not None:
+        for w in QApplication.topLevelWidgets():
+            w.close()
+            w.deleteLater()
+        app.processEvents()
+        app.processEvents()

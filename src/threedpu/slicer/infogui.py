@@ -149,6 +149,11 @@ class InfoWindow(QWidget):
         self.timer.start(3000)
         QTimer.singleShot(0, self._check)
 
+    def closeEvent(self, event) -> None:  # noqa: N802
+        self.timer.stop()
+        QThreadPool.globalInstance().waitForDone(5000)
+        super().closeEvent(event)
+
     def _copy_button(self, field: QLineEdit) -> QPushButton:
         btn = QPushButton("Copy")
         btn.clicked.connect(lambda: QGuiApplication.clipboard().setText(field.text()))
@@ -246,7 +251,12 @@ def main(cfg_path: Path | None = None) -> int:
             break
     w = InfoWindow(cfg_path)
     w.show()
-    return app.exec()
+    code = app.exec()
+    # Destroy the window while the QApplication still exists (avoids a crash on exit).
+    w.deleteLater()
+    app.processEvents()
+    del w
+    return code
 
 
 if __name__ == "__main__":
