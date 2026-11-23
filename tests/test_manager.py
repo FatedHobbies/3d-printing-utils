@@ -109,6 +109,35 @@ def test_app_end_to_end(server, tmp_path, project, monkeypatch):
     assert threemf.sliced_plates(result) == [2]
     assert opened == [job.job_id]
     assert win.table.rowCount() == 1
+    assert len(opened) == 1  # uploaded and opened exactly once
+    win.poll_timer.stop()
+    win.health_timer.stop()
+    win.close()
+
+
+def test_interrupted_upload_resumes(server, tmp_path, project):
+    """A job left 'uploading' when the app closed is sent again on the next start."""
+    from PySide6.QtWidgets import QApplication
+
+    from threedpu.manager import app as app_mod
+
+    qt = QApplication.instance() or QApplication([])
+    cfg_path = tmp_path / "manager.json"
+    cfg = config.ManagerConfig(slicer_url=server, token=TOKEN, jobs_dir=str(tmp_path / "mjobs"),
+                               poll_seconds=0.2, open_result_automatically=False,
+                               bambu_studio_path=str(tmp_path / "missing"))
+    config.save(cfg, cfg_path)
+    store = JobStore(tmp_path / "mjobs")
+    job = store.create(LocalJob("resume-job-1", str(project), project.name, 1, "P1S #1"), project)
+    job.status = JobStatus.UPLOADING
+    store.save(job)
+
+    win = app_mod.MainWindow(cfg_path)
+    deadline = time.time() + 20
+    while win.jobs[0].status != JobStatus.READY and time.time() < deadline:
+        qt.processEvents()
+        time.sleep(0.02)
+    assert win.jobs[0].status == JobStatus.READY, win.jobs[0].message
     win.poll_timer.stop()
     win.health_timer.stop()
     win.close()

@@ -284,6 +284,8 @@ class MainWindow(QMainWindow):
         self._in_flight: set[str] = set()
         self._tasks: set[Task] = set()
         self._last_printer = ""
+        self._interrupted = [j for j in self.jobs
+                             if j.status in (JobStatus.PENDING_UPLOAD, JobStatus.UPLOADING)]
 
         self.setWindowTitle(f"3dpu Manager {threedpu.__version__}")
         self.resize(980, 560)
@@ -512,14 +514,20 @@ class MainWindow(QMainWindow):
 
         def failed(err):
             self._in_flight.discard(job.job_id)
+            if "(HTTP 409)" in err:
+                # Slicer already has this job (an earlier upload got through); track it.
+                self._update(job, status=JobStatus.QUEUED, message="")
+                return
             self._update(job, status=JobStatus.FAILED, message=f"Upload failed: {err.splitlines()[0]}")
 
         self._run(run, done, failed)
 
     def _resume_interrupted(self) -> None:
         """Jobs that never reached Slicer (e.g. the app closed mid-upload) are retried."""
-        for job in self.jobs:
-            if job.status in (JobStatus.PENDING_UPLOAD, JobStatus.UPLOADING):
+        for job in self._interrupted:
+            if job.job_id not in self._in_flight and job.status in (
+                JobStatus.PENDING_UPLOAD, JobStatus.UPLOADING
+            ):
                 self._upload(job)
 
     def _poll(self) -> None:
