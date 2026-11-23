@@ -1,0 +1,65 @@
+name: installer
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build installer
+        shell: pwsh
+        run: installer\build.ps1
+      - name: Silent install (both components) and smoke test
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem installer\Output -Filter "3dpu-setup-*.exe").FullName
+          Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TYPE=both','/TASKS=firewall','/LOG=install.log' -Wait
+          $py = "C:\Program Files\3dpu\runtime\python.exe"
+          if (-not (Test-Path $py)) { Get-Content install.log -Tail 50; throw "runtime not installed" }
+          $env:QT_QPA_PLATFORM = "offscreen"
+          & $py -c "import threedpu.manager.app, threedpu.slicer.infogui, threedpu.slicer.service; print('imports ok')"
+          if ($LASTEXITCODE) { throw "imports failed" }
+          if (-not (Test-Path "$env:ProgramData\3dpu\slicer.json")) { throw "slicer.json not created" }
+          $menu = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\3dpu"
+          foreach ($s in "3dpu Manager.lnk", "3dpu Slicer.lnk") {
+            if (-not (Test-Path (Join-Path $menu $s))) { Get-ChildItem $menu; throw "missing shortcut $s" }
+          }
+          if (-not (Get-NetFirewallRule -DisplayName "3dpu Slicer" -ErrorAction SilentlyContinue)) { throw "firewall rule missing" }
+          # Service starts with the embedded runtime and answers /health
+          $cfg = Get-Content "$env:ProgramData\3dpu\slicer.json" | ConvertFrom-Json
+          $cfg.bambu_studio_path = $py   # any existing file: there is no Bambu Studio on the runner
+          $cfg | ConvertTo-Json | Set-Content "$env:ProgramData\3dpu\slicer.json"
+          $p = Start-Process "C:\Program Files\3dpu\runtime\pythonw.exe" -ArgumentList '-m','threedpu.slicer','serve' -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
+            Start-Sleep 1
+            try { Invoke-RestMethod http://127.0.0.1:8765/health -Headers @{ 'X-3DPU-Token' = $cfg.token } | Out-Null; $ok = $true } catch {}
+          }
+          if (-not $ok) { Get-Content "$env:ProgramData\3dpu\slicer.log" -ErrorAction SilentlyContinue; throw "service did not answer" }
+          & $py -m threedpu.slicer stop
+          $p.WaitForExit(15000) | Out-Null
+          Write-Host "service ok"
+          Start-Process "C:\Program Files\3dpu\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES' -Wait
+          Start-Sleep 3
+          if (Test-Path $py) { throw "uninstall left the runtime behind" }
+          Write-Host "uninstall ok"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 3dpu-installer
+          path: installer/Output/*.exe
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer/Output/*.exe
