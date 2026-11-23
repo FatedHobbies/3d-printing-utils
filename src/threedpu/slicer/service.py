@@ -7,7 +7,9 @@ import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from typing import Callable
+
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
 import threedpu
@@ -19,7 +21,13 @@ from threedpu.slicer.jobqueue import JobQueue
 MAX_UPLOAD_BYTES = 1024 * 1024 * 1024  # 1 GiB
 
 
-def create_app(jobs: JobQueue, token: str, bambu_path: Path, bambu_version: str | None) -> FastAPI:
+def create_app(
+    jobs: JobQueue,
+    token: str,
+    bambu_path: Path,
+    bambu_version: str | None,
+    request_shutdown: Callable[[], None] | None = None,
+) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         jobs.start()
@@ -91,6 +99,17 @@ def create_app(jobs: JobQueue, token: str, bambu_path: Path, bambu_version: str 
     def delete_job(job_id: str) -> dict:
         if not jobs.cancel_or_delete(job_id):
             raise HTTPException(status_code=404, detail="No such job")
+        return {"ok": True}
+
+    @app.post("/shutdown", dependencies=auth)
+    def shutdown(request: Request) -> dict:
+        """Stop the service. Only allowed from this PC (used by the Slicer info window)."""
+        host = request.client.host if request.client else ""
+        if host not in ("127.0.0.1", "::1", "localhost", "testclient"):
+            raise HTTPException(status_code=403, detail="Shutdown is only allowed from the Slicer PC")
+        if request_shutdown is None:
+            raise HTTPException(status_code=501, detail="Shutdown not available")
+        request_shutdown()
         return {"ok": True}
 
     return app

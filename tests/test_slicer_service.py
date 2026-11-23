@@ -128,3 +128,13 @@ def test_restart_marks_unfinished_failed(tmp_path, fake_bambu, project):
     # never started; simulate restart
     q2 = JobQueue(work, lambda: SliceRunner(fake_bambu, 10, []), None)
     assert q2.get("restart-1").status.value == "failed"
+
+
+def test_shutdown_only_with_callback(tmp_path, fake_bambu):
+    called = []
+    jobs = JobQueue(tmp_path / "w2", lambda: SliceRunner(fake_bambu, 10, []), None)
+    app = create_app(jobs, TOKEN, fake_bambu, None, lambda: called.append(True))
+    with TestClient(app, headers={TOKEN_HEADER: TOKEN}) as c:
+        assert c.post("/shutdown", headers={TOKEN_HEADER: "bad"}).status_code == 401
+        assert c.post("/shutdown").status_code == 200
+    assert called == [True]

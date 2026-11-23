@@ -1,9 +1,11 @@
 """Command line entry point for the Slicer machine.
 
-    3dpu-slicer serve        run the HTTP service (default)
-    3dpu-slicer show-token   print the access token to paste into Manager
-    3dpu-slicer find-bambu   show which Bambu Studio executable will be used
-    3dpu-slicer config       print the config file path and contents
+    python -m threedpu.slicer serve        run the HTTP service (default)
+    python -m threedpu.slicer info         window with this PC's address, token and service status
+    python -m threedpu.slicer stop         stop the service running on this PC
+    python -m threedpu.slicer show-token   print the access token to paste into Manager
+    python -m threedpu.slicer find-bambu   show which Bambu Studio executable will be used
+    python -m threedpu.slicer config       print the config file path and contents
 """
 
 from __future__ import annotations
@@ -24,6 +26,21 @@ def _bambu(cfg) -> tuple[Path, str | None]:
     return exe, bambu.exe_version(exe)
 
 
+def _setup_logging(log_file: Path | None) -> None:
+    fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    if log_file is None and sys.stderr is None:
+        # Started with pythonw.exe (no console): there is nowhere to print, so log to a file.
+        log_file = slicer_config_path().parent / "slicer.log"
+    if log_file is not None:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        stream = open(log_file, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
+        # Anything printed (tracebacks, warnings) goes to the log as well.
+        sys.stdout = sys.stderr = stream
+        logging.basicConfig(level=logging.INFO, format=fmt, stream=stream, force=True)
+    else:
+        logging.basicConfig(level=logging.INFO, format=fmt)
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
@@ -31,13 +48,13 @@ def cmd_serve(args: argparse.Namespace) -> int:
     from threedpu.slicer.runner import SliceRunner
     from threedpu.slicer.service import create_app
 
+    _setup_logging(args.log_file)
     cfg = load_slicer_config(args.config)
     try:
         exe, version = _bambu(cfg)
     except bambu.BambuStudioNotFound as exc:
-        print(exc, file=sys.stderr)
+        logging.error("%s", exc)
         return 2
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.info("Using Bambu Studio %s at %s", version or "(unknown version)", exe)
     logging.info("Config: %s", args.config or slicer_config_path())
 
@@ -47,8 +64,39 @@ def cmd_serve(args: argparse.Namespace) -> int:
         slicer_bambu_version=version,
         keep_work_days=cfg.keep_work_days,
     )
-    app = create_app(jobs, cfg.token, exe, version)
-    uvicorn.run(app, host=args.host or cfg.host, port=args.port or cfg.port, log_level="info")
+    server: uvicorn.Server | None = None
+
+    def request_shutdown() -> None:
+        if server is not None:
+            server.should_exit = True
+
+    app = create_app(jobs, cfg.token, exe, version, request_shutdown)
+    # log_config=None: use the logging set up above (works without a console too).
+    server = uvicorn.Server(uvicorn.Config(app, host=args.host or cfg.host,
+                                           port=args.port or cfg.port,
+                                           log_config=None, log_level="info"))
+    server.run()
+    return 0 if server.started else 1
+
+
+def cmd_info(args: argparse.Namespace) -> int:
+    from threedpu.slicer.infogui import main as info_main
+
+    return info_main(args.config)
+
+
+def cmd_stop(args: argparse.Namespace) -> int:
+    """Ask a running service on this PC to stop (used by the installer before upgrading)."""
+    from threedpu.manager.client import SlicerClient, SlicerError
+
+    cfg = load_slicer_config(args.config)
+    try:
+        with SlicerClient(f"http://127.0.0.1:{cfg.port}", cfg.token, timeout=3) as c:
+            c.shutdown()
+    except SlicerError as exc:
+        print(f"Service not stopped: {exc}", file=sys.stderr)
+        return 1
+    print("Service stopping.")
     return 0
 
 
@@ -77,14 +125,17 @@ def cmd_config(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="3dpu-slicer", description=__doc__,
+    parser = argparse.ArgumentParser(prog="python -m threedpu.slicer", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--config", type=Path, help="config file (default: %(default)s)",
-                        default=None)
+    parser.add_argument("--config", type=Path, default=None,
+                        help=f"config file (default: {slicer_config_path()})")
     sub = parser.add_subparsers(dest="cmd")
     serve = sub.add_parser("serve", help="run the HTTP service")
     serve.add_argument("--host")
     serve.add_argument("--port", type=int)
+    serve.add_argument("--log-file", type=Path, help="write the log here instead of the console")
+    sub.add_parser("info", help="show address, token and status in a window")
+    sub.add_parser("stop", help="stop the service running on this PC")
     sub.add_parser("show-token", help="print the access token")
     sub.add_parser("find-bambu", help="show the Bambu Studio executable in use")
     sub.add_parser("config", help="print config path and contents")
@@ -93,12 +144,14 @@ def main(argv: list[str] | None = None) -> int:
     handlers = {
         None: cmd_serve,
         "serve": cmd_serve,
+        "info": cmd_info,
+        "stop": cmd_stop,
         "show-token": cmd_show_token,
         "find-bambu": cmd_find_bambu,
         "config": cmd_config,
     }
     if args.cmd is None:
-        args.host = args.port = None
+        args.host = args.port = args.log_file = None
     return handlers[args.cmd](args)
 
 

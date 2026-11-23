@@ -36,21 +36,42 @@ Bambu Studio opens result: inspect, Print
 * Slicer slices exactly what was saved. It never passes `--arrange` or `--orient`.
 * Bambu Studio on Manager still does the printing, so cloud and LAN printers both work as they do today.
 
-> **Smart App Control / Application Control:** Windows may block the small unsigned launcher
-> files a virtual environment creates (`pip.exe`, `3dpu-slicer.exe`, `3dpu-manager.exe`), with
-> "An Application Control policy has blocked this file". Always run through the signed Python
-> instead: `python.exe -m pip ...`, `python.exe -m threedpu.slicer ...`,
-> `python.exe -m threedpu.manager`. If the venv's `python.exe` is blocked too, use the `py`
-> launcher (`py -3 -m ...`) without a venv. The PyInstaller builds from `scripts\build.ps1` are
-> unsigned too, so they may be blocked in the same way.
-
 ## Requirements
 
-* Windows 10/11 on both PCs, on the same network.
+* Windows 10/11 (64-bit) on both PCs, on the same network.
 * **The same Bambu Studio version on both PCs.** The app warns you when they differ.
-* Python 3.11 or newer to install from source (or use the `.exe` files built with `scripts\build.ps1`).
 
-## Setup
+## Install (recommended)
+
+Download `3dpu-setup-<version>.exe` from the
+[Releases page](https://github.com/FatedHobbies/3d-printing-utils/releases). Builds from pull
+requests are attached to the **installer** workflow run on the Actions tab, as the
+`3dpu-installer` artifact. Run the installer on each PC and pick a setup type:
+
+* **Slicer PC**: installs the service, starts it now and whenever you sign in, and (if you
+  leave the box ticked) lets Manager PCs on your home network reach it through Windows Firewall.
+  At the end it opens the **3dpu Slicer** window, which shows the address and access token to
+  enter on Manager, each with a Copy button. You can open that window again from the Start menu
+  any time. It also shows whether the service is running, has Start and Stop buttons, and lets
+  you pick `bambu-studio.exe` if it wasn't found automatically.
+* **Manager PC**: installs the **3dpu Manager** app (Start menu, plus an optional desktop
+  shortcut). On first start, it asks for the address and token shown in the 3dpu Slicer window.
+* **Both on this PC**: for trying it out. Use `http://127.0.0.1:8765` as the Slicer address.
+
+Uninstall from Windows Settings → Apps. Your settings and job history are kept.
+
+> **Smart App Control:** the installer isn't code-signed yet, so on PCs with Smart App Control
+> turned on, Windows blocks the installer itself. After installation, everything runs through
+> the signed `python.exe`/`pythonw.exe` from python.org, so the installed app isn't blocked.
+> On those PCs, install from source for now (below).
+
+## Install from source (advanced)
+
+> Windows may block the small unsigned launcher files that a virtual environment creates
+> (`pip.exe`, `3dpu-slicer.exe`, `3dpu-manager.exe`) with "An Application Control policy has
+> blocked this file". Always go through Python instead: `python.exe -m pip ...`,
+> `python.exe -m threedpu.slicer ...`, `python.exe -m threedpu.manager`. If the venv's
+> `python.exe` is blocked too, use the `py` launcher (`py -3 -m ...`) without a venv.
 
 ### Slicer PC
 
@@ -60,26 +81,11 @@ From an **elevated** PowerShell in a clone of this repo:
 powershell -ExecutionPolicy Bypass -File scripts\install-slicer.ps1
 ```
 
-This script:
-
-* installs the service into `C:\ProgramData\3dpu\venv`
-* creates `C:\ProgramData\3dpu\slicer.json` with a random access token
-* finds Bambu Studio (see below)
-* opens TCP port 8765 in Windows Firewall, for **Private** networks only
-* registers a scheduled task that starts the service, hidden, whenever you log on
-
-At the end it prints the address and access token to enter on Manager.
-
-**If Bambu Studio isn't found:** the CLI is `bambu-studio.exe`, in the same folder as
-`BambuStudio.dll`. Discovery checks the config file, the `BAMBU_STUDIO_EXE` environment
-variable, Program Files, per-user installs, the Windows registry, and `PATH`, in that order. To
-set it by hand:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install-slicer.ps1 -BambuStudioPath "C:\Program Files\Bambu Studio"
-# or edit "bambu_studio_path" in C:\ProgramData\3dpu\slicer.json, then check with:
-C:\ProgramData\3dpu\venv\Scripts\python.exe -m threedpu.slicer find-bambu
-```
+This installs the service into `C:\ProgramData\3dpu\venv`, creates
+`C:\ProgramData\3dpu\slicer.json` with a random access token, finds Bambu Studio, opens TCP port
+8765 in Windows Firewall for **Private** networks only, and registers a scheduled task that
+starts the service whenever you sign in. At the end it prints the address and token to enter on
+Manager. Open the Slicer window with `python.exe -m threedpu.slicer info`.
 
 ### Manager PC
 
@@ -89,21 +95,28 @@ py -3 -m venv "$env:USERPROFILE\3dpu\venv"
 & "$env:USERPROFILE\3dpu\venv\Scripts\python.exe" -m threedpu.manager
 ```
 
-On first start, the app asks for the Slicer address, made from the Slicer PC's computer name or IP (for example `http://RYAN-PC:8765`, or `http://127.0.0.1:8765` when both run on one PC), and the
-access token. **Test connection** confirms both. You can also edit the printer list there. It
-comes pre-filled with `P1S #1` to `#5` and `H2D #1`, `#2`.
-
 ### Trying both on one PC
-
-You can run the service and the app on the same PC, for example to test without the Manager PC:
 
 ```powershell
 py -3 -m venv .venv
 .venv\Scripts\python.exe -m pip install -e ".[slicer,manager]"
-.venv\Scripts\python.exe -m threedpu.slicer show-token
 .venv\Scripts\python.exe -m threedpu.slicer serve      # terminal 1
-.venv\Scripts\python.exe -m threedpu.manager           # terminal 2, Slicer address http://127.0.0.1:8765
+.venv\Scripts\python.exe -m threedpu.manager           # terminal 2
 ```
+
+## Connecting Manager to Slicer
+
+In 3dpu Manager → Settings, enter the Slicer address, made from the Slicer PC's computer name or
+IP address (for example `http://RYAN-PC:8765`, or `http://127.0.0.1:8765` when both run on one
+PC), and the access token. The 3dpu Slicer window shows both. **Test connection** checks them.
+You can also edit the printer list there. It comes pre-filled with `P1S #1` to `#5` and
+`H2D #1`, `#2`.
+
+**If Bambu Studio isn't found:** the CLI is `bambu-studio.exe`, in the same folder as
+`BambuStudio.dll`. Discovery checks the config file, the `BAMBU_STUDIO_EXE` environment variable,
+Program Files, per-user installs, the Windows registry, and `PATH`, in that order. To set it by
+hand, use **Choose…** in the 3dpu Slicer window, or set `"bambu_studio_path"` in
+`C:\ProgramData\3dpu\slicer.json` and restart the service.
 
 ## Usage
 
@@ -145,6 +158,14 @@ All requests need the `X-3DPU-Token` header.
 | `GET /jobs`, `GET /jobs/{id}` | Status: `queued`, `slicing`, `done`, `failed`, or `cancelled`, plus warnings and the log tail |
 | `GET /jobs/{id}/result` | The sliced `.gcode.3mf` |
 | `DELETE /jobs/{id}` | Cancels a queued or running job, or deletes a finished one |
+
+## Building the installer
+
+`installer\build.ps1`, run on Windows with Python 3.12 on `PATH`, downloads the embeddable
+Python from python.org, installs 3dpu into it, and compiles `installer\3dpu.iss` with Inno
+Setup. The **installer** GitHub Actions workflow does the same, then installs the result
+silently, starts the service, checks `/health`, and uninstalls. Pushing a `v*` tag publishes
+the installer as a GitHub release.
 
 ## Development
 

@@ -146,3 +146,58 @@ def test_interrupted_upload_resumes(server, tmp_path, project):
     win.poll_timer.stop()
     win.health_timer.stop()
     win.close()
+
+
+def test_slicer_info_window(server, tmp_path):
+    """The Slicer info window shows the address and token and sees the running service."""
+    from PySide6.QtWidgets import QApplication
+
+    from threedpu.slicer.infogui import InfoWindow, service_command
+
+    qt = QApplication.instance() or QApplication([])
+    port = int(server.rsplit(":", 1)[1])
+    cfg_path = tmp_path / "slicer.json"
+    config.save(config.SlicerConfig(port=port, token=TOKEN, bambu_studio_path=str(tmp_path / "x")),
+                cfg_path)
+    w = InfoWindow(cfg_path)
+    assert w.token.text() == TOKEN
+    deadline = time.time() + 10
+    while "Running" not in w.status.text() and time.time() < deadline:
+        qt.processEvents()
+        time.sleep(0.02)
+    assert "Running" in w.status.text()
+    assert "Not found" in w.bambu_label.text()
+    assert service_command()[-3:] == ["-m", "threedpu.slicer", "serve"]
+    w.timer.stop()
+    w.close()
+
+
+def test_serve_log_file(tmp_path, fake_bambu):
+    """serve --log-file works with no console and stops via /shutdown."""
+    import subprocess
+    import sys
+
+    port = free_port()
+    cfg_path = tmp_path / "slicer.json"
+    config.save(config.SlicerConfig(port=port, token=TOKEN, bambu_studio_path=str(fake_bambu),
+                                    work_dir=str(tmp_path / "work"), host="127.0.0.1"), cfg_path)
+    log = tmp_path / "slicer.log"
+    proc = subprocess.Popen([sys.executable, "-m", "threedpu.slicer", "--config", str(cfg_path),
+                             "serve", "--log-file", str(log)],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            try:
+                with SlicerClient(f"http://127.0.0.1:{port}", TOKEN, timeout=1) as c:
+                    c.health()
+                    c.shutdown()
+                break
+            except SlicerError:
+                time.sleep(0.2)
+        assert proc.wait(timeout=15) == 0
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    text = log.read_text()
+    assert "Using Bambu Studio" in text and "/shutdown" in text

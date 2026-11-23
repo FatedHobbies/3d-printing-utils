@@ -99,5 +99,8 @@ class SlicerClient:
         tmp.replace(dest)
         return dest
 
+    def shutdown(self) -> None:
+        self._request("POST", "/shutdown")
+
     def delete(self, job_id: str) -> None:
         self._request("DELETE", f"/jobs/{job_id}")

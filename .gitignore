@@ -7,3 +7,5 @@ build/
 dist/
 .pytest_cache/
 *.log
+installer/build/
+installer/Output/
