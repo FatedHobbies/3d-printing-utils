@@ -31,11 +31,18 @@ def build_command(
 
     The project's own embedded settings are used as-is: no --load-settings, and
     never --arrange or --orient, so the plate is sliced exactly as the user saved it.
+
+    --min-save writes the result without the model geometry, the same as Bambu
+    Studio's "Export plate sliced file". Bambu Studio only opens a .gcode.3mf as a
+    ready-to-print sliced file (Preview tab, Print button enabled) when it has no
+    model objects; with the model included it loads it as an editable project and
+    asks to slice again (see Plater::priv::load_files in Bambu Studio's Plater.cpp).
     """
     return [
         str(exe),
         "--slice",
         str(plate),
+        "--min-save",
         *extra_args,
         "--export-3mf",
         str(result_path),

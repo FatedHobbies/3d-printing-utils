@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 from datetime import datetime
+from html import escape
 import sys
 import traceback
 from pathlib import Path
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
+    QTextBrowser,
     QPushButton,
     QSplitter,
     QStyleFactory,
@@ -55,6 +57,14 @@ STATUS_TEXT = {
     JobStatus.CANCELLED: "Cancelled",
     JobStatus.READY: "Ready",
 }
+
+
+def local_time(iso: str) -> str:
+    """'2026-11-23T03:12:00+00:00' -> '2026-11-22 22:12' in this PC's time zone."""
+    try:
+        return datetime.fromisoformat(iso).astimezone().strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return iso.replace("T", " ")[:16]
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +282,8 @@ class SettingsDialog(QDialog):
 # ---------------------------------------------------------------------------
 # Main window
 # ---------------------------------------------------------------------------
-COLUMNS = ["Sent", "Project", "Plate", "Printer", "Status", "Details"]
+COLUMNS = ["Sent", "Project file", "Plate", "Printer", "Status", "Sliced file", "Details"]
+COL_PROJECT, COL_RESULT, COL_DETAILS = 1, 5, 6
 
 
 class MainWindow(QMainWindow):
@@ -330,7 +341,15 @@ class MainWindow(QMainWindow):
         tb.addSeparator()
         action("Settings…", self._settings)
 
+        heading = QLabel(
+            "Jobs sent to Slicer, newest first. Each row is one send. "
+            "Double-click a Ready job to open the sliced file in Bambu Studio."
+        )
+        heading.setContentsMargins(6, 6, 6, 2)
+
         self.table = QTableWidget(0, len(COLUMNS))
+        self.table.setTextElideMode(Qt.ElideMiddle)
+        self.table.setWordWrap(False)
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -338,19 +357,30 @@ class MainWindow(QMainWindow):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
-        header.setSectionResizeMode(5, QHeaderView.Stretch)
+        for col in (COL_PROJECT, COL_RESULT):
+            header.setSectionResizeMode(col, QHeaderView.Stretch)
+        header.setSectionResizeMode(COL_DETAILS, QHeaderView.Interactive)
+        header.resizeSection(COL_DETAILS, 200)
         self.table.itemSelectionChanged.connect(self._selection_changed)
         self.table.doubleClicked.connect(lambda _: self._open_selected())
 
-        self.details = QPlainTextEdit()
-        self.details.setReadOnly(True)
-        self.details.setPlaceholderText("Select a job to see warnings and the slicer log.")
+        self.details = QTextBrowser()
+        self.details.setOpenLinks(False)
+        self.details.anchorClicked.connect(lambda url: self._reveal(Path(url.toLocalFile())))
+        self.details.setPlaceholderText(
+            "Select a job to see its files, warnings and the slicer log."
+        )
+
+        top = QWidget()
+        top_layout = QVBoxLayout(top)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.addWidget(heading)
+        top_layout.addWidget(self.table)
 
         split = QSplitter(Qt.Vertical)
-        split.addWidget(self.table)
+        split.addWidget(top)
         split.addWidget(self.details)
-        split.setSizes([380, 140])
+        split.setSizes([360, 180])
         self.setCentralWidget(split)
 
         self.conn_label = QLabel("Slicer: checking…")
@@ -362,15 +392,17 @@ class MainWindow(QMainWindow):
         selected = self._selected()
         self.table.setRowCount(len(self.jobs))
         for row, job in enumerate(self.jobs):
-            sent = job.created_at.replace("T", " ")[:16]
             details = job.message
             if job.warnings:
                 details = f"⚠ {details}" if details else "⚠ see warnings below"
-            values = [sent, job.source_name, job.plate_label, job.printer,
-                      STATUS_TEXT.get(job.status, job.status.value), details]
+            result = self.store.result_path(job)
+            values = [local_time(job.created_at), job.source_path, job.plate_label, job.printer,
+                      STATUS_TEXT.get(job.status, job.status.value),
+                      str(result) if result else "", details]
             for col, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setData(Qt.UserRole, job.job_id)
+                item.setToolTip(value)
                 self.table.setItem(row, col, item)
         if selected:
             for row, job in enumerate(self.jobs):
@@ -395,15 +427,37 @@ class MainWindow(QMainWindow):
         if not job:
             self.details.clear()
             return
-        parts = [f"Job {job.job_id}", f"Project: {job.source_path}"]
-        if job.printer:
-            parts.append(f"Print on: {job.printer}")
-        if job.message:
-            parts.append(job.message)
-        parts += [f"⚠ {w}" for w in job.warnings]
+        self.details.setHtml(self._details_html(job))
+
+    def _details_html(self, job: LocalJob) -> str:
+        def link(p: Path | None, missing: str) -> str:
+            if p is None:
+                return f"<i>{escape(missing)}</i>"
+            return f'<a href="{QUrl.fromLocalFile(str(p)).toString()}">{escape(str(p))}</a>'
+
+        result = self.store.result_path(job)
+        source = Path(job.source_path)
+        rows = [
+            ("Project file", link(source if source.exists() else None,
+                                  f"{job.source_path} (no longer there)")),
+            ("Copy sent to Slicer", link(self.store.snapshot_path(job), "")),
+            ("Sliced file", link(result, "not ready yet" if not job.status.finished
+                                 else "none (see below)")),
+            ("Plate", escape(job.plate_label)),
+            ("Print on", escape(job.printer or "-")),
+            ("Status", escape(STATUS_TEXT.get(job.status, job.status.value)
+                              + (f": {job.message}" if job.message else ""))),
+            ("Sent", escape(local_time(job.created_at)) + f" &middot; job {escape(job.job_id)}"),
+        ]
+        html = "<table cellspacing='2'>" + "".join(
+            f"<tr><td><b>{k}</b>&nbsp;&nbsp;</td><td>{v}</td></tr>" for k, v in rows
+        ) + "</table>"
+        if job.warnings:
+            html += "".join(f"<p>⚠ {escape(w)}</p>" for w in job.warnings)
         if job.log_tail:
-            parts += ["", "--- Slicer log (end) ---", job.log_tail]
-        self.details.setPlainText("\n".join(parts))
+            html += f"<p><b>Slicer log (end)</b></p><pre>{escape(job.log_tail)}</pre>"
+        html += "<p style='color:gray'>Click a file path to show it in Explorer.</p>"
+        return html
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802
         urls = event.mimeData().urls()
@@ -630,14 +684,15 @@ class MainWindow(QMainWindow):
 
     def _show_folder(self) -> None:
         job = self._selected()
-        if not job:
-            return
-        folder = self.store.folder(job)
-        target = self.store.result_path(job) or self.store.snapshot_path(job)
+        if job:
+            self._reveal(self.store.result_path(job) or self.store.snapshot_path(job))
+
+    def _reveal(self, target: Path) -> None:
+        """Open Explorer with the file selected (or the folder elsewhere)."""
         if sys.platform == "win32" and target.exists():
             subprocess.Popen(["explorer", "/select,", str(target)])
         else:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(target.parent)))
 
     def _remove(self) -> None:
         job = self._selected()

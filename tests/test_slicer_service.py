@@ -49,6 +49,7 @@ def test_command_never_arranges_or_orients(tmp_path):
                         tmp_path / "out.gcode.3mf", 2, [])
     assert "--arrange" not in cmd and "--orient" not in cmd and "--load-settings" not in cmd
     assert cmd[1:3] == ["--slice", "2"]
+    assert "--min-save" in cmd  # sliced-only file, so Bambu Studio opens it ready to print
     assert cmd[-1].endswith("in.3mf")
 
 
