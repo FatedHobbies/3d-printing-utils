@@ -201,3 +201,60 @@ def test_serve_log_file(tmp_path, fake_bambu):
             proc.kill()
     text = log.read_text()
     assert "Using Bambu Studio" in text and "/shutdown" in text
+
+
+def test_tray_icon_and_states(server, tmp_path, monkeypatch):
+    """The tray sees a running server, starts one when none is running, and quits on request."""
+    from PySide6.QtWidgets import QApplication
+
+    from threedpu.slicer import tray as tray_mod
+
+    qt = QApplication.instance() or QApplication([])
+    for state in (tray_mod.RUNNING, tray_mod.STOPPED, tray_mod.UNKNOWN):
+        assert not tray_mod.pizza_cutter_icon(state).isNull()
+
+    def wait_for(cond, timeout=10):
+        deadline = time.time() + timeout
+        while not cond() and time.time() < deadline:
+            qt.processEvents()
+            time.sleep(0.02)
+        return cond()
+
+    port = int(server.rsplit(":", 1)[1])
+    cfg_path = tmp_path / "slicer.json"
+    config.save(config.SlicerConfig(port=port, token=TOKEN), cfg_path)
+    started = []
+    monkeypatch.setattr(tray_mod, "start_service_detached", lambda: started.append(1))
+
+    t = tray_mod.SlicerTray(cfg_path)
+    assert wait_for(lambda: t.state == tray_mod.RUNNING)
+    assert t.stop_action.isEnabled() and not t.start_action.isEnabled()
+    assert started == []  # already running: don't start a second server
+    t.timer.stop()
+    t.ipc.close()
+    t.tray.hide()
+
+    # Nothing listening: the tray reports stopped and starts the server once.
+    config.save(config.SlicerConfig(port=free_port(), token=TOKEN), cfg_path)
+    t2 = tray_mod.SlicerTray(cfg_path)
+    assert wait_for(lambda: t2.state == tray_mod.STOPPED)
+    assert started == [1]
+    # After the start attempt (a no-op here) the next check shows Start again, without retrying.
+    assert wait_for(lambda: t2.start_action.isEnabled())
+    assert not t2.stop_action.isEnabled() and started == [1]
+
+    # A second launch talks to this one instead of starting another tray.
+    quits = []
+    monkeypatch.setattr(t2, "quit", lambda: quits.append(1))
+    assert tray_mod.notify_running_instance("quit")
+    assert wait_for(lambda: quits == [1])
+    t2.timer.stop()
+    t2.ipc.close()
+    t2.tray.hide()
+    QThreadPool_wait()
+
+
+def QThreadPool_wait():
+    from PySide6.QtCore import QThreadPool
+
+    QThreadPool.globalInstance().waitForDone(5000)
