@@ -164,8 +164,9 @@ All requests need the `X-3DPU-Token` header.
 `installer\build.ps1`, run on Windows with Python 3.12 on `PATH`, downloads the embeddable
 Python from python.org, installs 3dpu into it, and compiles `installer\3dpu.iss` with Inno
 Setup. The **installer** GitHub Actions workflow does the same, then installs the result
-silently, starts the service, checks `/health`, and uninstalls. Pushing a `v*` tag publishes
-the installer as a GitHub release.
+silently, starts the service, checks `/health`, and uninstalls. When `main` gets a version in
+`pyproject.toml` that hasn't been released yet, the workflow publishes the installer as GitHub
+release `v<version>`. To release, bump the version and merge. Pushing a `v*` tag also works.
 
 ## Development
 
