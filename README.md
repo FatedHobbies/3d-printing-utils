@@ -36,6 +36,14 @@ Bambu Studio opens result: inspect, Print
 * Slicer slices exactly what was saved. It never passes `--arrange` or `--orient`.
 * Bambu Studio on Manager still does the printing, so cloud and LAN printers both work as they do today.
 
+> **Smart App Control / Application Control:** Windows may block the small unsigned launcher
+> files a virtual environment creates (`pip.exe`, `3dpu-slicer.exe`, `3dpu-manager.exe`), with
+> "An Application Control policy has blocked this file". Always run through the signed Python
+> instead: `python.exe -m pip ...`, `python.exe -m threedpu.slicer ...`,
+> `python.exe -m threedpu.manager`. If the venv's `python.exe` is blocked too, use the `py`
+> launcher (`py -3 -m ...`) without a venv. The PyInstaller builds from `scripts\build.ps1` are
+> unsigned too, so they may be blocked in the same way.
+
 ## Requirements
 
 * Windows 10/11 on both PCs, on the same network.
@@ -70,20 +78,32 @@ set it by hand:
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\install-slicer.ps1 -BambuStudioPath "C:\Program Files\Bambu Studio"
 # or edit "bambu_studio_path" in C:\ProgramData\3dpu\slicer.json, then check with:
-C:\ProgramData\3dpu\venv\Scripts\3dpu-slicer.exe find-bambu
+C:\ProgramData\3dpu\venv\Scripts\python.exe -m threedpu.slicer find-bambu
 ```
 
 ### Manager PC
 
 ```powershell
 py -3 -m venv "$env:USERPROFILE\3dpu\venv"
-& "$env:USERPROFILE\3dpu\venv\Scripts\pip.exe" install "<path to this repo>[manager]"
-& "$env:USERPROFILE\3dpu\venv\Scripts\3dpu-manager.exe"
+& "$env:USERPROFILE\3dpu\venv\Scripts\python.exe" -m pip install "<path to this repo>[manager]"
+& "$env:USERPROFILE\3dpu\venv\Scripts\python.exe" -m threedpu.manager
 ```
 
 On first start, the app asks for the Slicer address (for example `http://slicer-pc:8765`) and the
 access token. **Test connection** confirms both. You can also edit the printer list there. It
 comes pre-filled with `P1S #1` to `#5` and `H2D #1`, `#2`.
+
+### Trying both on one PC
+
+You can run the service and the app on the same PC, for example to test without the Manager PC:
+
+```powershell
+py -3 -m venv .venv
+.venv\Scripts\python.exe -m pip install -e ".[slicer,manager]"
+.venv\Scripts\python.exe -m threedpu.slicer show-token
+.venv\Scripts\python.exe -m threedpu.slicer serve      # terminal 1
+.venv\Scripts\python.exe -m threedpu.manager           # terminal 2, Slicer address http://127.0.0.1:8765
+```
 
 ## Usage
 

@@ -446,7 +446,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self, "Welcome",
             "Enter the Slicer's address and access token to get started.\n\n"
-            "On the Slicer PC, run:  3dpu-slicer show-token",
+            "On the Slicer PC, run:  python -m threedpu.slicer show-token",
         )
         self._settings()
 
