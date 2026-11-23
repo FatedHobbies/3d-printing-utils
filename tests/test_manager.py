@@ -246,8 +246,17 @@ def test_tray_icon_and_states(server, tmp_path, monkeypatch):
     # A second launch talks to this one instead of starting another tray.
     quits = []
     monkeypatch.setattr(t2, "quit", lambda: quits.append(1))
-    assert tray_mod.notify_running_instance("quit")
-    assert wait_for(lambda: quits == [1])
+    import subprocess
+    import sys
+
+    # Like a real second launch: another process sends the message.
+    client = subprocess.Popen([sys.executable, "-c",
+                               "import sys; from PySide6.QtCore import QCoreApplication; "
+                               "app = QCoreApplication([]); "
+                               "from threedpu.slicer.tray import notify_running_instance as n; "
+                               "sys.exit(0 if n('quit') else 3)"])
+    assert wait_for(lambda: quits == [1], timeout=20)
+    assert client.wait(timeout=10) == 0
     t2.timer.stop()
     t2.ipc.close()
     t2.tray.hide()

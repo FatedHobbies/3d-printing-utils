@@ -77,10 +77,13 @@ def notify_running_instance(message: str) -> bool:
     sock.connectToServer(INSTANCE_NAME)
     if not sock.waitForConnected(500):
         return False
-    sock.write(message.encode())
+    sock.write(message.encode() + b"\n")
     sock.flush()
-    sock.waitForBytesWritten(500)
-    sock.disconnectFromServer()
+    sock.waitForBytesWritten(1000)
+    # Let the running tray read the message and hang up first; closing our end right
+    # away can drop the message on Windows named pipes.
+    sock.waitForDisconnected(1000)
+    sock.abort()
     return True
 
 
@@ -124,6 +127,7 @@ class SlicerTray:
         self.tray.activated.connect(self._activated)
         self.tray.show()
 
+        self._conns: list[QLocalSocket] = []
         self.ipc = QLocalServer()
         QLocalServer.removeServer(INSTANCE_NAME)
         self.ipc.listen(INSTANCE_NAME)
@@ -230,13 +234,22 @@ class SlicerTray:
         conn = self.ipc.nextPendingConnection()
         if conn is None:
             return
-        conn.waitForReadyRead(500)
-        msg = bytes(conn.readAll()).decode(errors="replace").strip()
-        conn.disconnectFromServer()
-        if msg == "quit":
-            self.quit()
-        elif msg == "show":
-            self.show_info()
+        self._conns.append(conn)
+
+        def read() -> None:
+            if not conn.canReadLine():
+                return
+            msg = bytes(conn.readLine()).decode(errors="replace").strip()
+            conn.disconnectFromServer()
+            if conn in self._conns:
+                self._conns.remove(conn)
+            if msg == "quit":
+                self.quit()
+            elif msg == "show":
+                self.show_info()
+
+        conn.readyRead.connect(read)
+        read()  # the message may already be here
 
 
 def main(cfg_path: Path | None = None, show_info: bool = False) -> int:
