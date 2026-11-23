@@ -149,6 +149,13 @@ class InfoWindow(QWidget):
         self.timer.start(3000)
         QTimer.singleShot(0, self._check)
 
+    def showEvent(self, event) -> None:  # noqa: N802
+        # The tray reuses this window, so resume status checks whenever it's shown again.
+        if not self.timer.isActive():
+            self.timer.start(3000)
+            QTimer.singleShot(0, self._check)
+        super().showEvent(event)
+
     def closeEvent(self, event) -> None:  # noqa: N802
         self.timer.stop()
         QThreadPool.globalInstance().waitForDone(5000)

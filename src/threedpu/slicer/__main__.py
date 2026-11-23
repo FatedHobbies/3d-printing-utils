@@ -1,6 +1,7 @@
 """Command line entry point for the Slicer machine.
 
     python -m threedpu.slicer serve        run the HTTP service (default)
+    python -m threedpu.slicer tray         tray icon: starts the service, Start/Stop from its menu
     python -m threedpu.slicer info         window with this PC's address, token and service status
     python -m threedpu.slicer stop         stop the service running on this PC
     python -m threedpu.slicer show-token   print the access token to paste into Manager
@@ -79,6 +80,12 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0 if server.started else 1
 
 
+def cmd_tray(args: argparse.Namespace) -> int:
+    from threedpu.slicer.tray import main as tray_main
+
+    return tray_main(args.config, show_info=args.show_info)
+
+
 def cmd_info(args: argparse.Namespace) -> int:
     from threedpu.slicer.infogui import main as info_main
 
@@ -90,12 +97,24 @@ def cmd_stop(args: argparse.Namespace) -> int:
     from threedpu.manager.client import SlicerClient, SlicerError
 
     cfg = load_slicer_config(args.config)
+    tray_stopped = False
+    if args.tray:
+        try:
+            from PySide6.QtCore import QCoreApplication
+
+            from threedpu.slicer.tray import notify_running_instance
+
+            _app = QCoreApplication.instance() or QCoreApplication([])
+            tray_stopped = notify_running_instance("quit")  # the tray stops the server too
+        except ImportError:
+            pass
     try:
         with SlicerClient(f"http://127.0.0.1:{cfg.port}", cfg.token, timeout=3) as c:
             c.shutdown()
     except SlicerError as exc:
-        print(f"Service not stopped: {exc}", file=sys.stderr)
-        return 1
+        if not tray_stopped:
+            print(f"Service not stopped: {exc}", file=sys.stderr)
+            return 1
     print("Service stopping.")
     return 0
 
@@ -135,7 +154,11 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument("--port", type=int)
     serve.add_argument("--log-file", type=Path, help="write the log here instead of the console")
     sub.add_parser("info", help="show address, token and status in a window")
-    sub.add_parser("stop", help="stop the service running on this PC")
+    stop = sub.add_parser("stop", help="stop the service running on this PC")
+    stop.add_argument("--tray", action="store_true", help="also close the tray icon")
+    tray = sub.add_parser("tray", help="tray icon that starts/stops the service (starts it now)")
+    tray.add_argument("--show-info", action="store_true",
+                      help="also open the window with the address and token")
     sub.add_parser("show-token", help="print the access token")
     sub.add_parser("find-bambu", help="show the Bambu Studio executable in use")
     sub.add_parser("config", help="print config path and contents")
@@ -144,6 +167,7 @@ def main(argv: list[str] | None = None) -> int:
     handlers = {
         None: cmd_serve,
         "serve": cmd_serve,
+        "tray": cmd_tray,
         "info": cmd_info,
         "stop": cmd_stop,
         "show-token": cmd_show_token,

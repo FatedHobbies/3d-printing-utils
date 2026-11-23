@@ -44,19 +44,19 @@ Bambu Studio opens result: inspect, Print
 ## Install (recommended)
 
 Download `3dpu-setup-<version>.exe` from the
-[Releases page](https://github.com/FatedHobbies/3d-printing-utils/releases). Builds from pull
-requests are attached to the **installer** workflow run on the Actions tab, as the
-`3dpu-installer` artifact. Run the installer on each PC and pick a setup type:
+[Releases page](https://github.com/FatedHobbies/3d-printing-utils/releases) and run it on both
+computers. The first question is **What is this computer?**:
 
-* **Slicer PC**: installs the service, starts it now and whenever you sign in, and (if you
-  leave the box ticked) lets Manager PCs on your home network reach it through Windows Firewall.
-  At the end it opens the **3dpu Slicer** window, which shows the address and access token to
-  enter on Manager, each with a Copy button. You can open that window again from the Start menu
-  any time. It also shows whether the service is running, has Start and Stop buttons, and lets
-  you pick `bambu-studio.exe` if it wasn't found automatically.
-* **Manager PC**: installs the **3dpu Manager** app (Start menu, plus an optional desktop
-  shortcut). On first start, it asks for the address and token shown in the 3dpu Slicer window.
-* **Both on this PC**: for trying it out. Use `http://127.0.0.1:8765` as the Slicer address.
+* **This is the Slicer computer**: installs the Slicer server. A pizza-cutter icon appears in
+  the notification area (by the clock). A green dot means the server is running and grey means
+  it's stopped. Right-click the icon to **Start** or **Stop** the server, see the
+  **Connection info** (the address and access token to enter on the Manager computer, each with
+  a Copy button), or open the log. By default the icon, and with it the server, starts when you
+  sign in to Windows. The installer also offers to let the Manager computer through Windows
+  Firewall on your home (private) network.
+* **This is the Manager computer**: installs the **3dpu Manager** app (Start menu, plus an
+  optional desktop shortcut). On first start it asks for the address and token shown on the
+  Slicer computer.
 
 Uninstall from Windows Settings → Apps. Your settings and job history are kept.
 

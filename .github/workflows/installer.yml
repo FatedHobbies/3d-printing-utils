@@ -24,7 +24,7 @@ jobs:
         shell: pwsh
         run: |
           $setup = (Get-ChildItem installer\Output -Filter "3dpu-setup-*.exe").FullName
-          Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TYPE=both','/TASKS=firewall','/LOG=install.log' -Wait
+          Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/COMPONENTS=slicer,manager','/TASKS=firewall','/LOG=install.log' -Wait
           $py = "C:\Program Files\3dpu\runtime\python.exe"
           if (-not (Test-Path $py)) { Get-Content install.log -Tail 50; throw "runtime not installed" }
           $env:QT_QPA_PLATFORM = "offscreen"
@@ -40,15 +40,16 @@ jobs:
           $cfg = Get-Content "$env:ProgramData\3dpu\slicer.json" | ConvertFrom-Json
           $cfg.bambu_studio_path = $py   # any existing file: there is no Bambu Studio on the runner
           $cfg | ConvertTo-Json | Set-Content "$env:ProgramData\3dpu\slicer.json"
-          $p = Start-Process "C:\Program Files\3dpu\runtime\pythonw.exe" -ArgumentList '-m','threedpu.slicer','serve' -PassThru
+          # Start the way the Startup shortcut does: the tray, which starts the server.
+          $p = Start-Process "C:\Program Files\3dpu\runtime\pythonw.exe" -ArgumentList '-m','threedpu.slicer','tray' -PassThru
           $ok = $false
           for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
             Start-Sleep 1
             try { Invoke-RestMethod http://127.0.0.1:8765/health -Headers @{ 'X-3DPU-Token' = $cfg.token } | Out-Null; $ok = $true } catch {}
           }
           if (-not $ok) { Get-Content "$env:ProgramData\3dpu\slicer.log" -ErrorAction SilentlyContinue; throw "service did not answer" }
-          & $py -m threedpu.slicer stop
-          $p.WaitForExit(15000) | Out-Null
+          & $py -m threedpu.slicer stop --tray
+          if (-not $p.WaitForExit(15000)) { throw "tray did not exit" }
           Write-Host "service ok"
           Start-Process "C:\Program Files\3dpu\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES' -Wait
           Start-Sleep 3
